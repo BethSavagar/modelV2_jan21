@@ -1,0 +1,254 @@
+---
+title: "k Impact on Endemicity Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r libraries, include= FALSE}
+library(ggplot2)
+library(here)
+library(dplyr)
+library(reshape2)
+library(doParallel)
+library(foreach)
+
+```
+
+```{r parallelComputing, include = FALSE}
+
+# Set Up for Parallel Computing
+
+cores=detectCores()
+cl <- makeCluster(cores[1]-1) #not to overload your computer
+registerDoParallel(cl)
+
+
+```
+
+
+### Functions
+
+Load functions to run model, with most recent version
+
+```{r functions}
+source(here("Vfunctions", "V_stateUpdateT2.R")) # wrapper function, tracks epidemic in population over generations
+source(here("Vfunctions", "V_DS_T2.R")) # updates state of population based on current generation
+source(here("Vfunctions", "S_to_I_T2.R")) # infection simulation
+source(here("Vfunctions", "effcIdGenT2.R")) # generating effective contact IDs
+source(here("Vfunctions", "effcChecker.R")) # verifying effective contact IDs
+source(here("Vfunctions", "reseedingT2.R")) # reseeding infection
+
+```
+
+```{r EndStatsFn}
+
+# Function to calculate median (+ IQR) Incidence at equilibrium of simulations which become endemic
+
+endStats <- function(mat){
+  eq <- mat[, (ncol(mat)-100) :ncol(mat)]
+  id <- which(eq[,ncol(eq)] != 0) # which simulations became endemic 
+  if(length(id) == 0){
+    M <- 0 
+    iqr <- 0
+    lq <- 0
+    uq <- 0
+  }else if(length(id)>0){
+    mEnd <- as.vector(eq[id,]) # simulations which become endemic, subset for last 100 generations
+    M <- median(mEnd)
+    iqr <- IQR(mEnd)
+    lq <- quantile(mEnd)[2]
+    uq <- quantile(mEnd)[4]
+  }
+  sumStat <- c(Med = M, iqr = iqr, lq = lq, uq = uq)
+  return(sumStat)  
+  }
+
+```
+
+
+
+
+```{r pEndemicityfunction}
+
+# Function to calculate the proportion of simulations which become endemic
+
+endemicity <- function(Tmat){
+  
+  P_endemic <- sum(Tmat[,ncol(Tmat)]!=0) / nrow(Tmat) 
+
+  return(P_endemic)
+}
+
+
+
+```
+
+
+### What Impact does the value of k have on Endemicity? (Rperiod = 1)
+  + What is the incidence at equilibrium, what is the variation around this?
+  + What proportion of simulations become endemic (for given k value)?
+  
+#### Parameters
+
+* Refractory Period = 1 to simulate endemicity
+* R0 = 3 to simulate epidemic growth
+* Investigate k values between 0.1 and Infinity
+* Reseeding is ON to prevent early die-out
+* generations = 1000 to track endemicity
+* Is there a difference depending on whether ehterogneiety is fixed or variable? (initially fixed)
+
+```{r pars1, eval = FALSE}
+
+## Model Definition ##
+runs <- 100
+generations <- 100 # the number of generations (or timesteps) to run the model over
+output <- "I_counts" # defines the output as "matrix" (full disease state and ID of units) or "counts" (number of units in S,I,R states or "I_counts" (returns only count of infected units over time)
+
+## PARAMETERS ##
+
+## Population Parameters ##
+
+N <- 10000 # population size (may exxclude in favour of calculating in state_update function)
+I0 <- 10
+state_tracker <- c(rep("I", I0), rep("S", N - I0)) # initial disease state of units in population
+population_sample <- "large" # large or small population (determines sampling strategy)
+
+## Epidemiological Parameters ##
+
+R_period <- Inf # the refractory period: 1 = no immunity, Inf = lifelong immunity
+R0_estimate <- 3 # average number of effective contacts per unit
+k_transmission <- Inf # overdispersion parameter, level of heterogeneity in effective contact potential: 0.1 = high heterogneiety, Inf = homogeneous
+
+heterogeneity <- "fixed" # "fixed" or "variable", is unit transmission potential constant through time?
+contact_list1 <- replicate(N, c(1:N), simplify = FALSE) 
+contact_list <- lapply(1:length(contact_list1), 
+                       function(x) contact_list1[[x]][-x]) 
+
+## Reseeding Parameters ##
+reseed <- FALSE # reseed 5 infections periodically during the first 10% of generations
+reseed_threshold <- 0# threshold generation for reseeding events
+reseed_frequency <- 0
+introductions <- 0 # number of new cases introduced when reseeding occurs
+
+## Vaccination Parameters ##
+V_prop <- 0 # proportion to be vaccinated in each round
+V_start <- 0 # start generation for vaccination
+V_period <- 0 # duration of immunity from vaccination (by number of timesteps)
+V_rounds <- 0 # number of rounds (-1 for starting round) of vaccination in programme
+V_schedule <- 0 # how frequent is vacciantion (ie every 2 "years")
+V_mode <- "random" #random, target or non_target, NB: target/non-target only possible if heterogneiety is fixed
+
+```
+
+#### Run Model: 
+
+```{r sim1, eval = FALSE}
+output <- "I_counts"
+runs <- 100
+generations <- 1000
+R_period <- 1
+heterogeneity <- "fixed"
+
+k_vals <- c(0.1, 0.3, 0.5, 1, Inf)
+
+reseed <- TRUE
+reseed_threshold <- 100 # threshold generation for reseeding events
+reseed_frequency <- 10
+introductions <- 10
+
+kEnd_list <- list()
+
+system.time(
+  for(k in 1:length(k_vals)){
+    
+    k_transmission <- k_vals[k]
+    
+    Runs_tracker <-
+      foreach (z = 1:runs, .combine = "rbind") %dopar% {  
+        state_update(
+          state_tracker, 
+          N, 
+          population_sample,
+          generations,
+          output, 
+          R_period, 
+          R0_estimate,
+          k_transmission, 
+          heterogeneity,
+          contact_list,
+          reseed,
+          reseed_threshold,
+          reseed_frequency,
+          introductions,
+          V_prop, 
+          V_start,
+          V_period,
+          V_rounds,
+          V_schedule,
+          V_mode
+        )
+        
+        #runs_ <- rbind(runs_df, Runs_tracker)
+        
+      }
+    kEnd_list[[k]] <- Runs_tracker
+  }
+)
+
+save(kEnd_list, file = "kEndemicity_list.RData")
+```
+
+
+
+### Impact of k on endemicity
+
+Incidence at equilibrium + variation
+
+* For the conditions specified ($R0 = 3; RefractoryPeriod = 1$) the value of k does not make a (noticeable) difference to the median incidence at equilibrium, there is slightly greater variation around the median (IQR) for lower values of k. 
+
+
+Proportion of simulations which become endemic
+
+* For the conditions specified ($R0 = 3; RefractoryPeriod = 1$), the infection becomes endemic for all values of k between 0.1 - Inf. 
+*These results are a reflection of the values assigned to R0 and the refractory period which support endemicity - other values for these parameters should be explored to understand how k impacts endemicity*
+
+```{r kplots}
+
+# NB difference between mean epidemic when heterogeneity is fixed or variable is qualitative
+
+load(here("data_080121/WU1/kEndemicity_list.RData"))
+k_vals <- c(0.1, 0.3, 0.5, 1, Inf)
+
+# Median Incidence at equilibrium + variance 
+
+EndStats <- t(sapply(kEnd_list, endStats)) # calculates median and quartiles for Incidence at Equilbrium over different k values
+colnames(EndStats) <- c("Med", "IQR", "q1", "q3")
+
+kEndemicIncidence <-  as.data.frame(cbind(k_vals, EndStats))
+
+
+ggplot(data = kEndemicIncidence, aes(x = factor(k_vals), y = Med))+
+  geom_line()+
+  geom_errorbar(aes(ymin=q1, ymax=q3), width=.2)+
+  xlab("k value")+
+  ylab("Median Incidence at Equilibrium (+IQR)")+
+  theme_bw()
+
+# Proportion of simulations which become endemic
+
+  pEndemicity <- sapply(kEnd_list, endemicity)
+  
+  kEndemicProp <- as.data.frame(cbind(k_vals,pEndemicity))
+
+
+ggplot(data = kEndemicProp, aes(x = factor(k_vals), y = pEndemicity))+
+  geom_point()+
+  xlab("k value")+
+  ylab("Proportion Endemicity (100 simulations)")+
+  theme_bw()
+
+```

@@ -1,0 +1,213 @@
+---
+title: "Heterogeneity in susceptibility/exposure"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### HETEROGENEITY IN EXPOSURE 
+
+#### Parameters: 
+
+* `heterogeneity`: determines whether population variation is "**fixed**" (constant over time), "**variable**"  (changes each timestep) or "**homogeneous**" (all units have same potential)
+* `correlation`: Is the relationship between transmission & exposure correlated *postively* (pos), *negatively* (neg) or *unrelated* (none)
+* `k_transmission`: dispersion parameter for transmission (effective contacts)
+* `k_exposure`: dispersion parameter for exposure, required to generate probability distribution when independent of tranmsission
+* `R0_estimate`:  mean R0 
+* `N` : population size.
+
+Note: if k_exposure = Infinity, this corresponds to the poisson distribution
+
+
+### POSSIBLE CONDITIONS ##
+
+**Heterogeneity = fixed**
+Each unit in the population has a fixed exposure and transmission potential (inherent propert e.g. a static network)
+
+* Correlation = pos (positive)
+* Correlation = neg (negative)
+* Correlation = none (no correlation)
+
+**Heterogeneity = variable**
+The exposure and transmission potential of each unit changes every generation (stochastic property)
+
+* Both exposure potential and transmission potential change each generation, and are not correlated
+
+**Heterogeneity = homogeneous**
+Exposure and transmission potential is ocnstant across units and time (perfectly homogeneous)
+
+* Population is perfectly homogeneous with the same exposure and transmission potential
+
+
+### GENERATION OF EXPOSURE and TRANSMISSION DISTRIBUTIONS ##
+
+```{r, eval = FALSE}
+
+
+## Condition 1: Heterogeneity = fixed, unit exposure/transmission potential is fixed over generations ##
+
+# Exposure and transmission potential are determined before the generations for-loop 
+
+if (heterogeneity == "fixed"){
+  fixed_effc <- rnbinom(N, size = k_transmission, mu = R0_estimate) # generate transmission potential
+  
+  if(correlation == "pos"){ # if exposure is positively correlated with transmission
+    fixed_exp <- fixed_effc # exposure potential == transmission potential 
+    
+  }else if(correlation == "neg"){ # if exposure is positively correlated with transmission
+    fixed_exp <- (1:N)[rev(order(fixed_effc))] # exposure potential is opposite order to transmission potential
+    # NB: this is not exact negative correlation, since it orders from numbers 1:N, so units with the same trnasmission potential become ordered with respect to their exposure potential (should have minimal effect with large population)
+    
+  }else if(correlation == "none"){ # no correlation between exposure and transmission
+    fixed_exp <- rnbinom(N, size = k_exposure, mu = R0_estimate) # exposure potential is generated independently with NBD and k_exposure parameter (if set to 1000 = Poisson)
+  }
+  
+}
+
+## Condition 2: Heterogeneity == variable, unit exposure/transmission potential changes every generation ##
+# Exposure and transmission potential is re-calculated every generation (code is within the generations for-loop)
+
+if (heterogeneity == "variable"){ # if heterogeneity is variable calculate  exposure and transmission potential independently, no correlation 
+  fixed_effc <- rnbinom(N, size = k_transmission, mu = R0_estimate) # tranmsission potential, using k_transmission parameter
+  fixed_exp <- rnbinom(N, size = k_exposure, mu = R0_estimate) # exposure potential, usng k_exposure parameter
+  
+}
+
+## Condition 3: Heterogeneity == homogeneous, unit exposure and transmission potential are equal across time nad across units
+
+if(heterogeneity == "homogeneous"){
+  fixed_effc <- rep(R0_estimate, N) # quual transmission potential
+  fixed_exp <- rep(R0_estimate, N) # equal probability 
+}
+
+
+```
+
+
+#### GENERATING CASES WITH HETEROGENEOUS EXPOSURE and TRANSMISSION
+
+* `fixed_effc`: a vector of effective contact potentials of units in the population
++ Generate new I units by subsetting vector for current infected units + summing contact potentials
+* `fixed_exp`: a vector of the exposure potential of units in the population
++ Generate new I units by assigning exposure probability to population during sampling
+
+
+```{r, eval = FALSE}
+
+infected_IDs <- sample(N, I0) # infected IDs in given generation, used to generate new infections
+
+
+effc <- fixed_effc[infected_IDs] # effc contains effective contact potential of current infected units
+
+# if population is sufficiently large:
+effcSum <- sum(effc) # effcSum is the sum of effective contacts for current infected units (an ok assumption when pop is large enough and sampling includes replacement of units)
+
+contact_ids <- unique(sample(N, # population to sample from
+                             effcSum, # total effective contacts by all infected units
+                             replace=TRUE, # same unit can be contacted by multiple infected units
+                             prob = fixed_exp) # probability of a given unit being selected
+  )
+
+```
+
+#### Questions:
+
+* Is a negative binomial distribution an appropriate way to model exposure probability?
+  + NB: k = 1 is geometric distribution, k = Inf is poisson distribution
+
+
+```{r testpars}
+
+
+## Model Definition ##
+runs <- 1
+generations <- 100 # the number of generations (or timesteps) to run the model over
+output <- "counts" # defines the output as "matrix" (full disease state and ID of units) or "counts" (number of units in S,I,R states or "I_counts" (returns only count of infected units over time)
+
+## PARAMETERS ##
+
+## Population Parameters ##
+
+N <- 10000 # population size (may exxclude in favour of calculating in state_update function)
+I0 <- 10
+state_tracker <- c(rep("I", I0), rep("S", N - I0)) # initial disease state of units in population
+population_sample <- "large" # large or small population (determines sampling strategy)
+
+## Epidemiological Parameters ##
+
+R_period <- 1 # the refractory period: 1 = no immunity, Inf = lifelong immunity
+R0_estimate <- 3 # average number of effective contacts per unit
+k_transmission <- 0.1 # overdispersion parameter, level of heterogeneity in effective contact potential: 0.1 = high heterogneiety, Inf = homogeneous
+k_exposure <- Inf
+
+heterogeneity <- "fixed" # "fixed" or "variable", is unit transmission potential constant through time?
+correlation <- "pos"
+if(population_sample == "small"){
+  contact_list1 <- replicate(N, c(1:N), simplify = FALSE) 
+  contact_list <- lapply(1:length(contact_list1), 
+                       function(x) contact_list1[[x]][-x]) 
+}else{
+  contact_list <- c()
+}
+
+
+## Reseeding Parameters ##
+reseed <- FALSE # reseed 5 infections periodically during the first 10% of generations
+reseed_threshold <- 0# threshold generation for reseeding events
+reseed_frequency <- 0
+introductions <- 0 # number of new cases introduced when reseeding occurs
+
+## Vaccination Parameters ##
+V_prop <- 0 # proportion to be vaccinated in each round
+V_start <- 0 # start generation for vaccination
+V_period <- 0 # duration of immunity from vaccination (by number of timesteps)
+V_rounds <- 0 # number of rounds (-1 for starting round) of vaccination in programme
+V_schedule <- 0 # how frequent is vacciantion (ie every 2 "years")
+V_mode <- "random" #random, target or non_target, NB: target/non-target only possible if heterogneiety is fixed
+
+```
+
+
+```{r testmodel}
+Runs_tracker <- state_update(
+  ## Population Parameters ##
+  state_tracker, # a vector of the the initial state of the population
+  N, # population size (may exxclude in favour of calculating in state_update function)
+  population_sample, # large or small population (determines sampling strategy)
+  
+  ## Model Parameters ##
+  generations, # the number of generations (or timesteps) to run the model over
+  output, # defines the output as "matrix" (full disease state and ID of units) or "counts" (number of units in S,I,R states or "I_counts" (returns only count of infected units over time)
+  
+  ## Epidemiological Parameters ##
+  R_period, # the refractory period (number of timesteps that units are immune)
+  R0_estimate, # average number of effective contacts per unit
+  k_transmission, # overdispersion parameter, level of heterogeneity in effective contact potential
+  k_exposure, # dispersion parameter for exposure, required to generate probability distribution when independent of tranmsission
+  heterogeneity, # population variation is “fixed” (constant over time), “variable” (changes each timestep) or “homogeneous” (all units have same potential)
+  correlation, # relationship between transmission & exposure correlated postively (pos), negatively (neg) or unrelated (none)
+  contact_list, # potential contacts of each unit 
+  
+  ## Reseeding Parameters ##
+  reseed, # reseed 5 infections periodically during the first 10% of generations
+  reseed_threshold, # threshold generation for reseeding events
+  reseed_frequency,
+  introductions, # number of new cases introduced when reseeding occurs
+  
+  ## Vaccination Parameters ##
+  V_prop, # proportion to be vaccinated in each round
+  V_start, # start generation for vaccination
+  V_period, # duration of immunity from vaccination (by number of timesteps)
+  V_rounds, # number of rounds (-1 for starting round) of vaccination in programme
+  V_schedule, # how frequent is vacciantion (ie every 2 "years")
+  V_mode #random, target or non_target
+)
+
+```
+
+
+
+
+

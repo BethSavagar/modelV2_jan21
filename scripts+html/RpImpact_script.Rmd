@@ -1,0 +1,222 @@
+---
+title: "Refractory Period Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r libraries, include= FALSE}
+library(ggplot2)
+library(here)
+library(dplyr)
+library(reshape2)
+library(doParallel)
+library(foreach)
+
+```
+
+```{r parallelComputing, include = FALSE}
+
+# Set Up for Parallel Computing
+
+cores=detectCores()
+cl <- makeCluster(cores[1]-1) #not to overload your computer
+registerDoParallel(cl)
+
+
+```
+
+### Functions
+
+Load functions to run model, with most recent version
+
+```{r functions}
+source(here("Vfunctions", "V_stateUpdateT2.R")) # wrapper function, tracks epidemic in population over generations
+source(here("Vfunctions", "V_DS_T2.R")) # updates state of population based on current generation
+source(here("Vfunctions", "S_to_I_T2.R")) # infection simulation
+source(here("Vfunctions", "effcIdGenT2.R")) # generating effective contact IDs
+source(here("Vfunctions", "effcChecker.R")) # verifying effective contact IDs
+source(here("Vfunctions", "reseedingT2.R")) # reseeding infection
+
+```
+
+```{r usdfunction}
+
+# function to calculate median incidence at IQR for last 100 generations
+EpiStat <- function(mat) {
+  if (median(mat) == 0) {
+    M <- median(mat)
+    iqr <- IQR(mat)
+    q1 <- quantile(mat)[2]
+    q3 <- quantile(mat)[4]
+  } else{
+    vec <- as.vector(mat[(mat != 0)])
+    M <- median(vec)
+    iqr <- IQR(vec)
+    q1 <- quantile(vec)[2]
+    q3 <- quantile(vec)[4]
+  }
+  sumStat <- c(M, iqr, q1, q3)
+  return(sumStat)
+}
+
+```
+
+
+### What is the impact of the refractory period?
+
+* $generations = 1000$ to view long term trajectory
+* $R0 = 3$ R0 > 1 to explore impact on disease transmission & epidemic trajectory/endemicity
+* Refractory periods between 1 and 100 to explore impact of short and long term immunity
+
+```{r pars1, eval = FALSE}
+
+## Model Definition ##
+runs <- 1
+generations <- 100 # the number of generations (or timesteps) to run the model over
+output <- "counts" # defines the output as "matrix" (full disease state and ID of units) or "counts" (number of units in S,I,R states or "I_counts" (returns only count of infected units over time)
+
+## PARAMETERS ##
+
+## Population Parameters ##
+
+N <- 10000 # population size (may exxclude in favour of calculating in state_update function)
+I0 <- 10
+state_tracker <- c(rep("I", I0), rep("S", N - I0)) # initial disease state of units in population
+population_sample <- "large" # large or small population (determines sampling strategy)
+
+## Epidemiological Parameters ##
+
+R_period <- Inf # the refractory period: 1 = no immunity, Inf = lifelong immunity
+R0_estimate <- 3 # average number of effective contacts per unit
+k_transmission <- Inf # overdispersion parameter, level of heterogeneity in effective contact potential: 0.1 = high heterogneiety, Inf = homogeneous
+
+heterogeneity <- "fixed" # "fixed" or "variable", is unit transmission potential constant through time?
+contact_list1 <- replicate(N, c(1:N), simplify = FALSE) 
+contact_list <- lapply(1:length(contact_list1), 
+                       function(x) contact_list1[[x]][-x]) 
+
+## Reseeding Parameters ##
+reseed <- FALSE # reseed 5 infections periodically during the first 10% of generations
+reseed_threshold <- 0# threshold generation for reseeding events
+reseed_frequency <- 0
+introductions <- 0 # number of new cases introduced when reseeding occurs
+
+## Vaccination Parameters ##
+V_prop <- 0 # proportion to be vaccinated in each round
+V_start <- 0 # start generation for vaccination
+V_period <- 0 # duration of immunity from vaccination (by number of timesteps)
+V_rounds <- 0 # number of rounds (-1 for starting round) of vaccination in programme
+V_schedule <- 0 # how frequent is vacciantion (ie every 2 "years")
+V_mode <- "random" #random, target or non_target, NB: target/non-target only possible if heterogneiety is fixed
+
+```
+
+
+```{r RpImpact, eval = FALSE}
+
+generations <- 1000
+R0_estimate <- 3
+Rp_vals <- seq(1,10,1)
+
+Rp_list <- list()
+
+system.time(
+for(r in 1:length(Rp_vals)){
+  
+  R_period <- Rp_vals[r]
+  
+  Runs_tracker <-
+    foreach (z = 1:runs, .combine = "rbind") %dopar% {  
+      state_update(
+        state_tracker, 
+        N, 
+        population_sample,
+        generations,
+        output, 
+        R_period, 
+        R0_estimate,
+        k_transmission, 
+        heterogeneity,
+        contact_list,
+        reseed,
+        reseed_threshold,
+        reseed_frequency,
+        introductions,
+        V_prop, 
+        V_start,
+        V_period,
+        V_rounds,
+        V_schedule,
+        V_mode
+      )
+      
+    }
+  Rp_list[[r]] <- Runs_tracker
+}
+)
+
+```
+
+Plot epidemic trajectories with different refractory periods
+
+**(i) Impact on Endemicity**
+
+* As the refractory period increases, the outbreak more often results in extinction. With $R0 = 3$ and a homogeneous population, lower refractory periods (of 1 and 5 generations) result in disease endemicity, whilst higher refractory periods (of 10-100) result in extinction. A longer refractory period leads to more units remaining immune to infection at a specific time; at a given threshold refractory period, the susceptible population will be depleted such that infection can no longer be sustained and therefore declines to extinction. 
+
+**(ii) Impact on average incidence at equilibrium (see plot 2)**
+
+* As the refractory period increases, the average incidence at equilibrium decreases (to extinction for long refractory periods). For outbreaks which become endemic (refractory periods of 1 and 5), an increase in the length of the refractory period corresponds to greater variation in incidence, and a longer delay before equilibrium is reached. 
+
+```{r rpPlots}
+
+## Mean Epidemic Trajectory ##
+
+load(here("data_080121", "WU1", "rpImpact.RData"))
+Rp_vals <- seq(1,10,1)
+
+
+rpEpidemic <- t(sapply(Rp_list, 
+                       function(x) apply(x, 2, mean)
+                       ))
+
+rownames(rpEpidemic) <- Rp_vals
+rpEpidemic_long <- melt(rpEpidemic)
+colnames(rpEpidemic_long) <- c("R_period", "gen", "cases")
+rpEpidemic_long <- rpEpidemic_long %>% filter(R_period == 1 |
+                                                  R_period == 3 |
+                                                  R_period == 5 |
+                                                  R_period == 7 |
+                                                  R_period == 9 )
+    
+ggplot(data = rpEpidemic_long, aes(x = gen,y=cases, group = factor(R_period)))+
+      geom_line(aes(colour = factor(R_period)))+
+      xlab("Generation")+
+      ylab("Cases")+
+  scale_colour_discrete("Refractory Period")+
+      theme_bw()
+     # coord_cartesian(xlim = c(0,250))
+
+## Incidence at Equilibrium ##
+
+Rp_Eq <- lapply(Rp_list, 
+                function(x) 
+                  x[, 900:1000])
+
+sumStat <- t(sapply(Rp_Eq, EpiStat))
+colnames(sumStat) <- c("med", "iqr", "q1", "q3")
+Rp_CumInc <- as.data.frame(cbind("Rperiod" =Rp_vals, sumStat))
+
+# plot of median incidence
+ggplot(data = Rp_CumInc, aes(x = factor(Rp_vals),y=med))+
+  geom_point()+
+  geom_errorbar(aes(ymin=q1, ymax=q3), width=.2)+
+  xlab("Refractory Period")+
+  ylab("Incidence at Equilibrium (G900)")+
+  theme_bw()
+
+```
+
