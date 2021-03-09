@@ -32,17 +32,17 @@ N <- 1000 # population size (may exxclude in favour of calculating in state_upda
 I0 <- 10
 state_tracker <- c(rep("I", I0), rep("S", N - I0)) # initial disease state of units in population
 population_sample <- "large" # large or small population (determines sampling strategy)
-
+contact_list1 <- replicate(N, c(1:N), simplify = FALSE) 
+contact_list <- lapply(1:length(contact_list1), 
+                       function(x) contact_list1[[x]][-x]) 
 ## Epidemiological Parameters ##
 
 R_period <- Inf # the refractory period: 1 = no immunity, Inf = lifelong immunity
 R0_estimate <- 3 # average number of effective contacts per unit
-k_transmission <- Inf # overdispersion parameter, level of heterogeneity in effective contact potential: 0.1 = high heterogneiety, Inf = homogeneous
+k_transmission <- 0.1 # overdispersion parameter, level of heterogeneity in effective contact potential: 0.1 = high heterogneiety, Inf = homogeneous
 
 heterogeneity <- "fixed" # "fixed" or "variable", is unit transmission potential constant through time?
-contact_list1 <- replicate(N, c(1:N), simplify = FALSE) 
-contact_list <- lapply(1:length(contact_list1), 
-                       function(x) contact_list1[[x]][-x]) 
+
 
 ## Reseeding Parameters ##
 reseed <- FALSE # reseed 5 infections periodically during the first 10% of generations
@@ -59,6 +59,13 @@ V_schedule <- 0 # how frequent is vacciantion (ie every 2 "years")
 V_mode <- "random" #random, target or non_target, NB: target/non-target only possible if heterogneiety is fixed
 
 
+
+# Exposure and Transmission Correlation
+C_lower <- -0.05 # lower bound for correlation range
+C_upper <- -0.2 # upper bound for correlation range
+sd0 <- 0 # starting standard deviation, usually 0
+sd_increment <- 0.1 # increment for increasing standard deviation in while loop used to generate EXPdist
+
 ## SIMULATION ##
 
 
@@ -67,10 +74,12 @@ V_mode <- "random" #random, target or non_target, NB: target/non-target only pos
 Runs_tracker <-
   state_update(
     
+    
     ## Population Parameters ##
     state_tracker, # a vector of the the initial state of the population
     N, # population size (may exxclude in favour of calculating in state_update function)
     population_sample, # large or small population (determines sampling strategy)
+    contact_list, # potential contacts for each unit (when population_sample == small)
     
     ## Model Parameters ##
     generations, # the number of generations (or timesteps) to run the model over
@@ -79,9 +88,14 @@ Runs_tracker <-
     ## Epidemiological Parameters ##
     R_period, # the refractory period (number of timesteps that units are immune)
     R0_estimate, # average number of effective contacts per unit
-    k_transmission, # overdispersion parameter, level of heterogeneity in effective contact potential
-    heterogeneity, # is heterogeneity in effective contacts "fixed" or "variable"
-    contact_list, # potential contacts of each unit 
+    k_transmission, # defines overdispersion of contacts in population (transmission and exposure)
+    heterogeneity, # population variation is “fixed” (constant over time), “variable” (changes each timestep) or “homogeneous” (all units have same potential)
+    
+    # Exposure and Transmission Correlation
+    C_lower, # lower bound for correlation range
+    C_upper, # upper bound for correlation range
+    sd0, # starting standard deviation, usually 0
+    sd_increment, # increment for increasing standard deviation in while loop used to generate EXPdist
     
     ## Reseeding Parameters ##
     reseed, # reseed 5 infections periodically during the first 10% of generations
