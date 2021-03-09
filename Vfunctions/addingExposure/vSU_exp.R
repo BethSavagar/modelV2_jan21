@@ -1,5 +1,6 @@
 # Updated with homogeneity and working as per 19/02/21
 # Investigsting addition of exposure variaiton (19/-02/21)
+# adding new exposure correlation code from 09 Mar 2021 - see newExposurecode_010321.Rmd
 
 # given the initial disease state of the population, the state_tracker function will return the change in the disease state of individuals in the population over time
 
