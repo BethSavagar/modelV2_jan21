@@ -11,6 +11,7 @@ S_to_I <- function(I_index, # ID of infected units
                    R0_estimate,
                    k_transmission,
                    heterogeneity, # fixed or variable, depending on whether unit transmission potential is constant
+                   fixed_exp,
                    effc_dist, # effective contact rate of units if fixed heterogeneity
                    exp_dist
                    ) {
@@ -50,9 +51,14 @@ S_to_I <- function(I_index, # ID of infected units
                             k_transmission, 
                             R0_estimate) 
     
-    exp_dist <- rnbinom(N, 
-                          size = k_exposure, 
+    
+    if(fixed_exp == TRUE){
+      exp_dist <- rep(1,N)
+    }else{
+      exp_dist <- rnbinom(N, 
+                          size = k_transmission, 
                           mu = R0_estimate) 
+    }
     
   }
   

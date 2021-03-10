@@ -21,7 +21,9 @@ state_update <- function(
   R0_estimate, # average number of effective contacts per unit
   k_transmission, # defines overdispersion of contacts in population (transmission and exposure)
   heterogeneity, # population variation is “fixed” (constant over time), “variable” (changes each timestep) or “homogeneous” (all units have same potential)
+  fixed_exp, # TRUE or FALSE, if TRUE then exposure potential is equal for all units, if FALSE then exposure potential is drawn from NBD as transmission
  
+  
   # Exposure and Transmission Correlation
   C_lower, # lower bound for correlation range
   C_upper, # upper bound for correlation range
@@ -72,7 +74,7 @@ state_update <- function(
     
     ## Exposure Potential ##
     
-    ccorrelation <- 1
+    correlation <- 1
     
     if(C_lower > 0){ # if correlation is positive
       while(correlation < C_lower | correlation > C_upper){
@@ -111,6 +113,10 @@ state_update <- function(
     exp_dist <- vector() # empty vector will be populated every 'generation'
   }
   
+  if(fixed_exp == TRUE){
+    exp_dist <- rep(1,N)
+  }
+  
   
   # Set the initial state of the population, this will be updated with each iteration of the generations FOR loop below.
   
@@ -147,6 +153,7 @@ state_update <- function(
                                          k_transmission,
                                         
                                          heterogeneity,
+                                         fixed_exp,
 
                                          effc_dist,
                                          exp_dist,

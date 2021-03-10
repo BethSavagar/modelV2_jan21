@@ -19,6 +19,7 @@ newDiseaseState <-
             k_transmission,
             
             heterogeneity,
+           fixed_exp,
             
             effc_dist,
             exp_dist,
@@ -100,6 +101,7 @@ newDiseaseState <-
                           R0_estimate,
                           k_transmission,
                           heterogeneity, # fixed or variable, depending on whether unit transmission potential is constant
+                          fixed_exp,
                           effc_dist, # effective contact rate of units if fixed heterogeneity
                           exp_dist
     ) 
