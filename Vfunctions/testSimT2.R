@@ -37,12 +37,12 @@ contact_list <- lapply(1:length(contact_list1),
                        function(x) contact_list1[[x]][-x]) 
 ## Epidemiological Parameters ##
 
-R_period <- Inf # the refractory period: 1 = no immunity, Inf = lifelong immunity
+R_period <- 1 # the refractory period: 1 = no immunity, Inf = lifelong immunity
 R0_estimate <- 3 # average number of effective contacts per unit
 k_transmission <- 0.1 # overdispersion parameter, level of heterogeneity in effective contact potential: 0.1 = high heterogneiety, Inf = homogeneous
 
-heterogeneity <- "fixed" # "fixed" or "variable", is unit transmission potential constant through time?
-
+heterogeneity <- "homogeneous" # "fixed" or "variable", is unit transmission potential constant through time?
+fixed_exp <- FALSE
 
 ## Reseeding Parameters ##
 reseed <- FALSE # reseed 5 infections periodically during the first 10% of generations
@@ -61,8 +61,8 @@ V_mode <- "random" #random, target or non_target, NB: target/non-target only pos
 
 
 # Exposure and Transmission Correlation
-C_lower <- -0.05 # lower bound for correlation range
-C_upper <- -0.2 # upper bound for correlation range
+C_lower <- 0.8 # lower bound for correlation range
+C_upper <- 0.9 # upper bound for correlation range
 sd0 <- 0 # starting standard deviation, usually 0
 sd_increment <- 0.1 # increment for increasing standard deviation in while loop used to generate EXPdist
 
@@ -90,6 +90,7 @@ Runs_tracker <-
     R0_estimate, # average number of effective contacts per unit
     k_transmission, # defines overdispersion of contacts in population (transmission and exposure)
     heterogeneity, # population variation is “fixed” (constant over time), “variable” (changes each timestep) or “homogeneous” (all units have same potential)
+    fixed_exp, 
     
     # Exposure and Transmission Correlation
     C_lower, # lower bound for correlation range
@@ -117,7 +118,7 @@ Runs_tracker <-
 
 
 
-
+plot(1:100, Runs_tracker[2,], type = "l")
 
 
 

@@ -80,7 +80,7 @@ state_update <- function(
       while(correlation < C_lower | correlation > C_upper){
         
         R0rnd <- effc_dist + rnorm(N,
-                                   mean=R0,
+                                   mean=R0_estimate,
                                    sd=sd0)
         
         exp_dist <- c()
@@ -93,7 +93,7 @@ state_update <- function(
     }else if(C_upper < 0){ # if correlation is negative
       
       R0rnd <- effc_dist + rnorm(N,
-                                 mean=R0,
+                                 mean=R0_estimate,
                                  sd=sd0)
       
       exp_dist <- c()
